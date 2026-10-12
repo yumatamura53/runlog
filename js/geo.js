@@ -7,7 +7,7 @@ export const CONFIG = {
   kalmanQ: 3,             // m/s。カルマンフィルタの想定加速度（走る速さの変化しやすさ）
   minMove: 2,             // m。これ未満の移動は揺れとみなして足さない
   gapMs: 15000,           // これ以上測位が空いたら「途切れ」とみなす
-  paceWindowMs: 15000,    // 現在ペースを出す時間幅
+  paceWindowMs: 10000,    // 現在ペースを出す時間幅
   autopauseSpeed: 0.7,    // m/s 未満が続いたら止まったとみなす
   autopauseAfterMs: 6000,
   autoresumeSpeed: 1.2,

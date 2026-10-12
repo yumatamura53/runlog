@@ -868,7 +868,7 @@ function openPlanDialog() {
     b.type = 'button'; b.className = 'preset';
     b.setAttribute('aria-pressed', String(settings.planId === p.id));
     const s = document.createElement('strong'); s.textContent = p.name;
-    const d = document.createElement('span'); d.textContent = p.plan.type === 'interval' ? describePlan(p.plan) : p.plan.type === 'free' ? '自由に走る' : '目標を音声でお知らせ';
+    const d = document.createElement('span'); d.textContent = p.plan.type === 'interval' ? `レスト ${fmtDuration(p.plan.restMs)} ・ 前後 ${p.plan.warmupMs / 60000}分/${p.plan.cooldownMs / 60000}分` : p.plan.type === 'free' ? '自由に走る' : '目標を音声でお知らせ';
     b.append(s, d);
     b.addEventListener('click', () => { setPlan(p.plan, p.id); $('dlg-plan').close(); });
     return b;
