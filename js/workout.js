@@ -180,7 +180,7 @@ function stepStartText(s, plan) {
   if (s.kind === 'rest') return `レスト ${sayDuration(s.ms)}`;
   if (s.kind === 'work') {
     const len = s.m ? (s.m >= 1000 ? sayKm(s.m) : s.m + 'メートル') : sayDuration(s.ms);
-    return `${s.rep}本目 スタート。${len}${plan.pace ? '。目標 ' + sayPace(plan.pace) : ''}`;
+    return `${s.rep}本目 スタート。${len}${plan.pace ? '。目標ペース ' + sayPace(plan.pace) : ''}`;
   }
   return 'スタート';
 }

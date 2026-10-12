@@ -1,0 +1,61 @@
+// インターバル（自作メニュー）の通し確認
+import { chromium, devices } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+const out = process.argv[2] || 'shots';
+let failures = 0;
+const check = (c, m) => { console.log((c ? 'OK  ' : 'NG  ') + m); if (!c) failures++; };
+const b = await chromium.launch();
+const ctx = await b.newContext({ ...devices['iPhone 13'], permissions: ['geolocation'] });
+await ctx.addInitScript(() => {
+  window.__said = [];
+  const w = new Map(); let n = 0;
+  navigator.geolocation.watchPosition = (ok) => { w.set(++n, ok); return n; };
+  navigator.geolocation.clearWatch = (id) => w.delete(id);
+  window.__push = (lat, speed) => { for (const ok of w.values()) ok({ coords: { latitude: lat, longitude: 139.76, accuracy: 5, altitude: null, altitudeAccuracy: null, speed }, timestamp: Date.now() }); };
+  Object.defineProperty(window, 'speechSynthesis', { value: { speak: (u) => window.__said.push(u.text), cancel() {} } });
+});
+const p = await ctx.newPage();
+const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+await p.clock.install();
+await p.goto('http://localhost:8765/');
+await p.clock.runFor(300);
+await p.click('#btn-plan');
+await p.click('#custom-plan summary');
+await p.selectOption('#cp-type', 'interval');
+await p.fill('#cp-work', '200'); await p.fill('#cp-reps', '3'); await p.fill('#cp-rest', '30');
+await p.fill('#cp-warm', '1'); await p.fill('#cp-cool', '1'); await p.fill('#cp-pace', '4:00');
+await p.screenshot({ path: out + '/i-01-dialog.png' });
+await p.click('#cp-apply');
+check((await p.textContent('#plan-name')).includes('200m×3'), 'メニュー名: ' + await p.textContent('#plan-name'));
+await p.click('#btn-start'); await p.clock.runFor(3200);
+let lat = 35.68, shot = false;
+for (let i = 0; i < 900; i++) {
+  await p.clock.runFor(1000);
+  const title = await p.textContent('#wb-title');
+  const v = title.includes('レスト') ? 1.2 : title.includes('本目') ? 4.2 : 2.8;
+  lat += v / 111320;
+  await p.evaluate(([a, s]) => window.__push(a, s), [lat, v]);
+  if (!shot && title.includes('2/3本目')) { shot = true; await p.screenshot({ path: out + '/i-02-running.png' }); }
+  if (title === '完了') break;
+}
+const said = await p.evaluate(() => window.__said);
+console.log('   ', said.join(' / '));
+check(said.some((t) => t.startsWith('200メートルを3本')), '開始の案内');
+check(said.filter((t) => /本目 終了/.test(t)).length === 3, '3 本の終了案内');
+check(said.includes('あと10秒でラン'), 'レスト終了前の案内');
+check(said.includes('ワークアウト完了です。お疲れさまでした'), '完了の案内');
+check(!said.some((t) => t.startsWith('1キロ。')), 'インターバル中は km ごとの自動案内を出さない');
+await p.click('#btn-pause');
+const fb = await p.locator('#btn-finish').boundingBox();
+await p.mouse.move(fb.x + 20, fb.y + 20); await p.mouse.down(); await p.clock.runFor(1200); await p.mouse.up();
+await p.clock.runFor(800);
+await p.waitForSelector('#view-detail.active');
+const rows = await p.locator('#d-workout-rows tr').allInnerTexts();
+console.log('   ', rows);
+check(rows.length === 3, 'ワークアウト結果の表');
+check(rows.every((r) => /200 m/.test(r) && /0:(4[6-9]|5[01])/.test(r)), '各本 200m・約 48 秒');
+check((await p.inputValue('#d-type')) === 'インターバル', '種類が自動でインターバル');
+await p.screenshot({ path: out + '/i-03-detail.png', fullPage: true });
+check(!errs.length, 'エラーなし ' + errs.join(','));
+await b.close();
+console.log(failures ? failures + ' 件の失敗' : 'すべて成功');
+process.exit(failures ? 1 : 0);
