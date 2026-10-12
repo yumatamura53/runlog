@@ -290,6 +290,18 @@ export class Recorder {
 
 /* ---------- 記録の分析 ---------- */
 
+// 点列の範囲（長い記録でも引数の数の上限にかからないようループで求める）
+export function bounds(points) {
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const p of points) {
+    if (p[0] < minLat) minLat = p[0];
+    if (p[0] > maxLat) maxLat = p[0];
+    if (p[1] < minLon) minLon = p[1];
+    if (p[1] > maxLon) maxLon = p[1];
+  }
+  return { minLat, maxLat, minLon, maxLon };
+}
+
 // 旧形式（v1: [lat, lon, 秒, 区間]）の points に累計距離を補う
 export function normalizePoints(points) {
   if (!points.length || points[0].length >= 6) return points;

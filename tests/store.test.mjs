@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toGpx, parseGpx, upgrade, makeBackup, readBackup, autoTitle } from '../js/store.js';
+import { toGpx, parseGpx, upgrade, makeBackup, readBackup, autoTitle, isDuplicate } from '../js/store.js';
 import { Recorder } from '../js/geo.js';
 import { simulate, cityLoop } from './sim.mjs';
 
@@ -58,4 +58,17 @@ test('バックアップの書き出しと読み込み', () => {
 test('自動タイトル', () => {
   assert.equal(autoTitle(new Date(2026, 9, 12, 6, 30).getTime()), '月曜朝のラン');
   assert.equal(autoTitle(new Date(2026, 9, 11, 19, 0).getTime()), '日曜夜のラン');
+});
+
+test('GPX: タイトルの文字参照を戻し、書き出し→取り込みで同じ名前になる', () => {
+  const rec = { ...sampleRun(), title: '朝ラン & 坂道 <B>' };
+  const back = parseGpx(toGpx(rec));
+  assert.equal(back.title, '朝ラン & 坂道 <B>');
+});
+
+test('同じランの取り込みを重複として見分ける', () => {
+  const rec = sampleRun();
+  const again = parseGpx(toGpx(rec, { hideMeters: 200 }));
+  assert.ok(isDuplicate(again, [rec]));
+  assert.ok(!isDuplicate({ ...again, startedAt: again.startedAt + 86400000 }, [rec]));
 });

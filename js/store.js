@@ -10,15 +10,21 @@ function open() {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open('runlog', 1);
       req.onupgradeneeded = () => req.result.createObjectStore('runs', { keyPath: 'id' });
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const conn = req.result;
+        // iOS はバックグラウンドの間に接続を切ることがある。切れたら次回つなぎ直す
+        conn.onclose = () => { dbPromise = null; };
+        conn.onversionchange = () => { conn.close(); dbPromise = null; };
+        resolve(conn);
+      };
       req.onerror = () => reject(req.error);
     });
+    dbPromise.catch(() => { dbPromise = null; });
   }
   return dbPromise;
 }
 
-async function tx(mode, fn) {
-  const conn = await open();
+function txOnce(conn, mode, fn) {
   return new Promise((resolve, reject) => {
     const t = conn.transaction('runs', mode);
     const req = fn(t.objectStore('runs'));
@@ -28,18 +34,52 @@ async function tx(mode, fn) {
   });
 }
 
-let cache = null; // 一覧表示を速くするためのメモリ上の写し
+async function tx(mode, fn) {
+  try {
+    return await txOnce(await open(), mode, fn);
+  } catch {
+    // 接続が切れていた場合に備えて、つなぎ直して 1 回だけやり直す
+    dbPromise = null;
+    return txOnce(await open(), mode, fn);
+  }
+}
+
+// 一覧・集計用に、軌跡（points）を除いた要約だけをメモリに持つ。
+// 軌跡はサムネイル用に間引いたもの（thumb）だけ残す。
+let cache = null;
+
+function summarize(r) {
+  const { points, ...rest } = r;
+  const step = Math.max(1, Math.ceil((points?.length || 0) / 120));
+  const thumb = [];
+  for (let i = 0; i < (points?.length || 0); i += step) thumb.push([points[i][0], points[i][1], 0, points[i][3]]);
+  return { ...rest, points: [], thumb, hasRoute: (points?.length || 0) > 1 };
+}
 
 export const runs = {
   async all() {
-    if (!cache) cache = (await tx('readonly', (s) => s.getAll())).map(upgrade);
+    if (!cache) {
+      const list = await tx('readonly', (s) => s.getAll());
+      const stale = list.filter((r) => !(r.v >= 2 && r.efforts));
+      if (stale.length) await tx('readwrite', (s) => { let last; for (const r of stale) last = s.put(upgrade(r)); return last; });
+      cache = list.map((r) => summarize(upgrade(r)));
+    }
     return cache;
   },
-  async get(id) { return (await this.all()).find((r) => r.id === id) || null; },
+  // 軌跡も含めた完全な記録
+  async get(id) {
+    const r = await tx('readonly', (s) => s.get(id));
+    return r ? upgrade(r) : null;
+  },
+  async allFull() { return (await tx('readonly', (s) => s.getAll())).map(upgrade); },
   async put(run) {
     const r = upgrade(run);
     await tx('readwrite', (s) => s.put(r));
-    if (cache) { const i = cache.findIndex((x) => x.id === r.id); if (i >= 0) cache[i] = r; else cache.push(r); }
+    if (cache) {
+      const sum = summarize(r);
+      const i = cache.findIndex((x) => x.id === r.id);
+      if (i >= 0) cache[i] = sum; else cache.push(sum);
+    }
     return r;
   },
   async putMany(list) {
@@ -52,6 +92,12 @@ export const runs = {
     if (cache) cache = cache.filter((r) => r.id !== id);
   },
 };
+
+// 同じランをもう一度取り込まないための判定（開始時刻が近く、距離もほぼ同じ）
+export function isDuplicate(run, existing) {
+  return existing.some((r) => Math.abs(r.startedAt - run.startedAt) < 15 * 60000
+    && Math.abs(r.distance - run.distance) <= Math.max(200, r.distance * 0.15));
+}
 
 // 古い形式の記録を最新の形にそろえる
 export function upgrade(r) {
@@ -117,9 +163,17 @@ export function parseGpx(text) {
   if (samples.length < 2) throw new Error('GPX に軌跡が見つかりませんでした');
   if (!samples.every((s) => isFinite(s.t))) throw new Error('時刻のない GPX は取り込めません');
   const rec = recordFromSamples(samples);
-  const raw = nameMatch && nameMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+  const raw = nameMatch && decodeEntities(nameMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '')).trim();
   if (raw) rec.title = raw;
   return rec;
+}
+
+function decodeEntities(t) {
+  return t.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => {
+    const k = e.toLowerCase();
+    if (k[0] === '#') return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+    return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[k];
+  });
 }
 
 // 時刻つきの点列から、移動時間・距離・ラップ・標高を計算する

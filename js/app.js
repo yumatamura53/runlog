@@ -1,12 +1,12 @@
 // RunLog 画面とイベントのつなぎ込み
-import { Recorder, CONFIG, normalizePoints, paceSeries, splitElevation, smooth, EFFORTS } from './geo.js';
+import { Recorder, CONFIG, normalizePoints, paceSeries, splitElevation, smooth, trimEnds, EFFORTS } from './geo.js';
 import { Workout, PRESETS, describePlan } from './workout.js';
 import {
   weekStart, monthStart, yearStart, sumBetween, weeklySeries, personalRecords, newRecordsIn,
   predictRaces, weekStreak, dailyDistance, shoeMileage,
 } from './stats.js';
 import { fmtDuration, fmtPace, fmtKm, fmtDate, sayDuration, sayPace, sayKm, parsePace, parseDuration } from './format.js';
-import { runs, toGpx, parseGpx, makeBackup, readBackup, shareOrDownload, fileStamp, autoTitle } from './store.js';
+import { runs, toGpx, parseGpx, makeBackup, readBackup, shareOrDownload, fileStamp, autoTitle, isDuplicate } from './store.js';
 import { lineChart, barChart, calendar, routeThumb } from './charts.js';
 import { makeMap, drawRoute, hasLeaflet } from './map.js';
 import { renderShareImage } from './share.js';
@@ -238,6 +238,9 @@ function resume() {
 async function finish() {
   if (!isRecording()) return;
   const now = Date.now();
+  // 保存中にアプリが落ちても「走り続けている」扱いで復元されないよう、先に一時停止で保存しておく
+  rec.pause(now);
+  persist(true);
   const r = rec.finish(now);
   r.title = autoTitle(r.startedAt);
   r.memo = '';
@@ -293,8 +296,10 @@ function persist(force) {
   lastSaved = now;
   if (!isRecording()) return;
   const ok = saveJSON(CURRENT_KEY, { rec, workout, voiceState });
-  if (!ok && force) toast('途中保存に失敗しました（空き容量不足）');
+  if (!ok && !persistWarned) { persistWarned = true; toast('途中保存に失敗しました。端末の空き容量を確認してください', 5000); }
+  if (ok) persistWarned = false;
 }
+let persistWarned = false;
 
 function restoreCurrent() {
   const saved = loadJSON(CURRENT_KEY);
@@ -307,27 +312,46 @@ function restoreCurrent() {
     try { localStorage.removeItem(CURRENT_KEY); } catch { /* ignore */ }
     return;
   }
+  // 長いあいだ測位がなかった（アプリが終了していた）なら、最後の測位の時点で一時停止にする
+  let msg = rec.status === 'running' ? '計測を続けています（途中から復元しました）' : '一時停止中の計測を復元しました';
+  const lastAt = rec.lastFixAt || rec.resumedAt;
+  if ((rec.status === 'running' || rec.status === 'autopaused') && Date.now() - lastAt > 10 * 60000) {
+    if (rec.status === 'running') rec.accumMs += Math.max(0, lastAt - rec.resumedAt);
+    rec.status = 'paused';
+    msg = 'しばらく止まっていたので、一時停止の状態で復元しました';
+  }
   resetTrack();
   replayTrack();
   startWatch();
   requestWakeLock();
   startTicking();
-  toast(rec.status === 'running' ? '計測を続けています（途中から復元しました）' : '一時停止中の計測を復元しました');
+  toast(msg, 4000);
+  // iOS は画面に触れるまで読み上げできないので、最初のタップで音声を再開する
+  if (settings.voice && !isNative()) {
+    document.addEventListener('pointerdown', () => speak('音声ガイドを再開します'), { once: true, capture: true });
+  }
 }
 
 /* ---- 画面スリープ防止・バックグラウンド復帰 ---- */
 
 async function requestWakeLock() {
-  if (!('wakeLock' in navigator) || wakeLock) return;
-  try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', () => { wakeLock = null; });
-  } catch { /* 省電力モードなどで拒否されることがある */ }
+  if (isNative() || wakeLock) return;
+  let ok = false;
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+      ok = true;
+    } catch { /* 省電力モードなどで拒否されることがある */ }
+  }
+  // スリープ防止が使えないときは、自動ロックの設定を案内する
+  $('wake-hint').hidden = ok || !isRecording();
 }
-function releaseWakeLock() { wakeLock?.release().catch(() => {}); wakeLock = null; }
+function releaseWakeLock() { wakeLock?.release().catch(() => {}); wakeLock = null; $('wake-hint').hidden = true; }
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    window.speechSynthesis?.resume?.(); // iOS で読み上げが止まったままになるのを防ぐ
     if (isRecording()) {
       requestWakeLock();
       // ブラウザ版はバックグラウンドから戻ると GPS が止まったままのことがあるので掛け直す
@@ -556,7 +580,7 @@ function runItem(r, isPr) {
   const sub = document.createElement('div'); sub.className = 'ri-sub';
   sub.textContent = `${fmtDuration(r.duration)} ・ ${r.distance > 0 ? fmtPace(r.duration / r.distance) : `--'--"`}`;
   right.append(dist, sub);
-  li.append(routeThumb(r.points), main, right);
+  li.append(routeThumb(r.thumb || r.points), main, right);
   li.addEventListener('click', () => openDetail(r.id));
   li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(r.id); } });
   return li;
@@ -716,10 +740,15 @@ function renderSplits(r, pts) {
   $('d-splits').closest('table').hidden = !laps.length;
 }
 
-async function updateDetail(patch) {
-  const r = await runs.get(detailId);
-  if (!r) return;
-  await runs.put({ ...r, ...patch });
+// 記録の編集は 1 つずつ順番に保存する（同時に書いて片方が消えないように）
+let updateChain = Promise.resolve();
+function updateDetail(id, patch) {
+  updateChain = updateChain.then(async () => {
+    const r = await runs.get(id);
+    if (!r) return;
+    await runs.put({ ...r, ...(typeof patch === 'function' ? patch(r) : patch) });
+  }).catch(() => toast('保存に失敗しました'));
+  return updateChain;
 }
 
 /* ================= 分析 ================= */
@@ -952,7 +981,8 @@ async function importGpxFiles(files) {
   for (const f of files) {
     try {
       const r = parseGpx(await f.text());
-      if (await runs.get(r.id) || list.some((x) => x.id === r.id)) { skipped++; continue; }
+      if (isDuplicate(r, await runs.all()) || isDuplicate(r, list)) { skipped++; continue; }
+      while (await runs.get(r.id) || list.some((x) => x.id === r.id)) r.id++;
       r.title ||= autoTitle(r.startedAt);
       list.push(r);
       ok++;
@@ -966,7 +996,7 @@ async function importGpxFiles(files) {
 }
 
 async function exportBackup() {
-  const all = await runs.all();
+  const all = await runs.allFull();
   const blob = new Blob([makeBackup(all, settings)], { type: 'application/json' });
   const res = await shareOrDownload(blob, `runlog-backup-${fileStamp(Date.now())}.json`);
   if (res !== 'cancelled') { settings.lastBackup = Date.now(); saveSettings(); }
@@ -1008,15 +1038,28 @@ function bind() {
   $('btn-back').addEventListener('click', () => showView('view-history'));
 
   // 詳細
-  $('d-title').addEventListener('change', (e) => updateDetail({ title: e.target.value.trim() || autoTitle(Date.now()) }));
-  $('d-type').addEventListener('change', (e) => updateDetail({ type: e.target.value }));
-  $('d-shoe').addEventListener('change', (e) => updateDetail({ shoeId: e.target.value || null }));
-  $('d-feel').addEventListener('change', (e) => updateDetail({ feel: e.target.value }));
-  let memoTimer;
-  $('d-memo').addEventListener('input', (e) => {
-    clearTimeout(memoTimer);
-    memoTimer = setTimeout(() => updateDetail({ memo: e.target.value }), 400);
+  $('d-title').addEventListener('change', (e) => {
+    const title = e.target.value.trim();
+    updateDetail(detailId, (r) => ({ title: title || autoTitle(r.startedAt) }));
   });
+  $('d-type').addEventListener('change', (e) => updateDetail(detailId, { type: e.target.value }));
+  $('d-shoe').addEventListener('change', (e) => updateDetail(detailId, { shoeId: e.target.value || null }));
+  $('d-feel').addEventListener('change', (e) => updateDetail(detailId, { feel: e.target.value }));
+  // メモは打ち終わって少ししたら保存。画面を離れるときもすぐ保存する
+  let memoTimer = null, memoPending = null;
+  const flushMemo = () => {
+    clearTimeout(memoTimer);
+    if (memoPending) { updateDetail(memoPending.id, { memo: memoPending.memo }); memoPending = null; }
+  };
+  $('d-memo').addEventListener('input', (e) => {
+    memoPending = { id: detailId, memo: e.target.value };
+    clearTimeout(memoTimer);
+    memoTimer = setTimeout(flushMemo, 400);
+  });
+  $('d-memo').addEventListener('blur', flushMemo);
+  window.addEventListener('pagehide', flushMemo);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushMemo(); });
+  $('btn-back').addEventListener('pointerdown', flushMemo);
   $('btn-pacecolor').addEventListener('click', () => {
     settings.paceColor = !settings.paceColor; saveSettings();
     if (detailPts.length) drawDetailMap(detailPts);
@@ -1024,6 +1067,10 @@ function bind() {
   $('btn-gpx').addEventListener('click', async () => {
     const r = await runs.get(detailId);
     if (!r) return;
+    if (settings.hideMeters && trimEnds(r.points, settings.hideMeters).length < 2) {
+      toast('短い記録のため、スタートとゴール付近を隠すと何も残りません（設定 → プライバシーで変更できます）', 5000);
+      return;
+    }
     const blob = new Blob([toGpx(r, { hideMeters: settings.hideMeters })], { type: 'application/gpx+xml' });
     await shareOrDownload(blob, `run-${fileStamp(r.startedAt)}.gpx`);
   });
@@ -1107,14 +1154,15 @@ async function init() {
   if (perm === 'granted' || perm === 'native' || perm === 'unknown' || isRecording()) startWatch();
   else setGps('', 'タップして GPS を開始（スタート時にも開始します）');
 
+  navigator.storage?.persist?.().catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
   // バックアップのすすめ（30 日以上していない、かつ記録が 5 件以上）
-  const all = await runs.all();
+  const all = await runs.all().catch(() => []);
   if (all.length >= 5 && (!settings.lastBackup || Date.now() - settings.lastBackup > 30 * 86400000) && !isRecording()) {
     setTimeout(() => toast('記録はこの端末の中だけにあります。設定 → データ からバックアップしておくと安心です', 5000), 1500);
   }
 
-  navigator.storage?.persist?.().catch(() => {});
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 init();

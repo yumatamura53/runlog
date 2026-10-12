@@ -165,6 +165,20 @@ await page.clock.runFor(1500);
 check((await page.textContent('#m-distance')) === before, `再読み込み後も距離を保持（${before} km）`);
 check(await page.isVisible('#btn-pause'), '再読み込み後も計測中');
 
+// 同じ GPX をもう一度取り込んでも増えない
+await page.setInputFiles('#file-import', { name: 'old.gpx', mimeType: 'application/gpx+xml', buffer: Buffer.from(gpx2) });
+await page.clock.runFor(500);
+check((await page.textContent('#toast')).includes('取り込み済み'), '重複した GPX は取り込まない');
+
+// アプリが長く終了していた場合は一時停止で復元（その間を走った時間に入れない）
+const timeBefore = await page.textContent('#m-time');
+await page.clock.runFor(20 * 60000);
+await page.reload();
+await page.clock.runFor(1500);
+check(await page.isVisible('#btn-resume'), '20 分後の再起動では一時停止で復元');
+const tb = timeBefore.split(':').reduce((a, x) => a * 60 + +x, 0), ta = (await page.textContent('#m-time')).split(':').reduce((a, x) => a * 60 + +x, 0);
+check(ta - tb < 60, `止まっていた時間はタイムに入らない（${timeBefore} → ${await page.textContent('#m-time')}）`);
+
 console.log('エラー:', errors.length ? errors : 'なし');
 if (errors.length) failures++;
 await browser.close();

@@ -1,3 +1,4 @@
+import { bounds } from './geo.js';
 // 軽量な SVG グラフ（折れ線＋十字線ツールチップ、棒グラフ、カレンダー）
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -193,8 +194,7 @@ export function calendar(container, year, month, days, { onPick } = {}) {
 export function routeThumb(points, size = 56) {
   const svg = el('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size, class: 'thumb', 'aria-hidden': 'true' });
   if (!points || points.length < 2) return svg;
-  const lats = points.map((p) => p[0]), lons = points.map((p) => p[1]);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const { minLat, maxLat, minLon, maxLon } = bounds(points);
   const k = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
   const w = (maxLon - minLon) * k || 1e-9, h = maxLat - minLat || 1e-9;
   const s = (size - 8) / Math.max(w, h);

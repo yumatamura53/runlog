@@ -1,5 +1,5 @@
 // 共有用の画像（地図タイルは使わず、ルートの線だけを描く）
-import { trimEnds, normalizePoints } from './geo.js';
+import { trimEnds, normalizePoints, bounds } from './geo.js';
 import { fmtDuration, fmtPace, fmtKm, fmtDate } from './format.js';
 
 export async function renderShareImage(run, { hideMeters = 0, title = '' } = {}) {
@@ -21,8 +21,7 @@ export async function renderShareImage(run, { hideMeters = 0, title = '' } = {})
   const pts = trimEnds(normalizePoints(run.points || []), hideMeters);
   const box = { x: 90, y: 240, w: W - 180, h: 640 };
   if (pts.length > 1) {
-    const lats = pts.map((p) => p[0]), lons = pts.map((p) => p[1]);
-    const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLon = Math.min(...lons), maxLon = Math.max(...lons);
+    const { minLat, maxLat, minLon, maxLon } = bounds(pts);
     const k = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
     const w = (maxLon - minLon) * k || 1e-9, h = maxLat - minLat || 1e-9;
     const s = Math.min(box.w / w, box.h / h);
