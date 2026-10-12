@@ -1,5 +1,5 @@
 // 画面の通し確認（合成 GPS を流して 5km 走らせる）。使い方: node tests/e2e.mjs <スクショ保存先>
-import { chromium, devices } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { chromium, devices } from 'playwright';
 import { simulate, cityLoop } from './sim.mjs';
 import fs from 'fs';
 

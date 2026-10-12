@@ -65,6 +65,7 @@ RunLog では次の方法で補正しています。
 ビルド不要の静的ファイルです（ES Modules）。
 
 ```sh
+npm install -g playwright          # 画面テストを動かす場合のみ
 python3 -m http.server 8765         # http://localhost:8765/ で開く（localhost なら位置情報も使えます）
 node --test tests/*.test.mjs        # 計算ロジックのテスト（GPS・ワークアウト・集計・GPX・import の整合）
 node tests/sw-check.mjs             # sw.js のファイル一覧の確認

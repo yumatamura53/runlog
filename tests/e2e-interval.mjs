@@ -1,5 +1,5 @@
 // インターバル（自作メニュー）の通し確認
-import { chromium, devices } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { chromium, devices } from 'playwright';
 const out = process.argv[2] || 'shots';
 let failures = 0;
 const check = (c, m) => { console.log((c ? 'OK  ' : 'NG  ') + m); if (!c) failures++; };
