@@ -490,6 +490,7 @@ function renderMetrics() {
 
 async function renderWeekMini() {
   const all = await runs.all();
+  renderWelcome(all);
   const w = sumBetween(all, weekStart(Date.now()));
   const box = $('week-mini');
   box.replaceChildren();
@@ -503,6 +504,14 @@ async function renderWeekMini() {
     const fill = document.createElement('div'); fill.style.width = `${Math.min(100, (w.dist / 1000 / settings.weekGoal) * 100)}%`;
     bar.appendChild(fill); box.appendChild(bar);
   }
+}
+
+// 最初の数回だけ、使い始めのコツを出す
+function renderWelcome(all) {
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone;
+  $('tip-install').hidden = !!standalone || isNative();
+  $('tip-lock').hidden = isNative();
+  $('welcome').hidden = !!settings.welcomeDone || all.length >= 3;
 }
 
 function setLock(on) {
@@ -767,6 +776,7 @@ async function renderStats() {
     ? `残り ${daysLeft} 日で ${(settings.monthGoal - month.dist / 1000).toFixed(1)} km` : `${month.count} 回`);
 
   const weeks = weeklySeries(all, now, 12);
+  renderLoadNote(weeks, now);
   barChart($('chart-weeks'), weeks.map((w, i) => {
     const s = new Date(w.start);
     return { label: `${s.getMonth() + 1}/${s.getDate()}`, value: w.dist / 1000, current: i === weeks.length - 1, tip: `${s.getMonth() + 1}/${s.getDate()}〜 ${w.count} 回` };
@@ -822,6 +832,21 @@ async function renderStats() {
     bar.appendChild(fill);
     wrap.append(top, bar);
     box.appendChild(wrap);
+  }
+}
+
+// 週の距離が直近 4 週の平均より大きく増えていたら、けが予防のひと言を出す
+function renderLoadNote(weeks, now) {
+  const note = $('load-note');
+  const cur = weeks[weeks.length - 1];
+  const prev = weeks.slice(-5, -1);
+  const avg = prev.reduce((a, w) => a + w.dist, 0) / Math.max(1, prev.length);
+  const activeWeeks = prev.filter((w) => w.dist > 0).length;
+  // 週の途中なので、今日までの日数ではなく「今週すでに走った距離」で判断する
+  const risky = activeWeeks >= 2 && avg > 3000 && cur.dist > avg * 1.5;
+  note.hidden = !risky;
+  if (risky) {
+    note.textContent = `今週は ${fmtKm(cur.dist, 1)} km で、直近 4 週の平均（${fmtKm(avg, 1)} km）より ${Math.round((cur.dist / avg - 1) * 100)}% 多めです。急に距離を増やすとけがをしやすいので、疲れや痛みがあれば休みを入れましょう。`;
   }
 }
 
@@ -1030,6 +1055,7 @@ function bind() {
   $('btn-lock').addEventListener('click', () => setLock(true));
   longPress($('btn-unlock'), 800, '長押しで解除', () => setLock(false));
   $('btn-plan').addEventListener('click', openPlanDialog);
+  $('btn-welcome-ok').addEventListener('click', () => { settings.welcomeDone = true; saveSettings(); $('welcome').hidden = true; });
   $('cp-type').addEventListener('change', syncCustomFields);
   $('cp-apply').addEventListener('click', applyCustomPlan);
   $('gps-status').addEventListener('click', () => { if (!stopWatch) startWatch(); });

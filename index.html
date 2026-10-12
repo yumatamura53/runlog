@@ -49,6 +49,16 @@
       </button>
       <div class="controls"><button id="btn-start" class="btn btn-primary btn-xl" type="button">スタート</button></div>
       <div id="week-mini" class="week-mini"></div>
+      <div id="welcome" class="card welcome" hidden>
+        <h2>はじめに</h2>
+        <ol>
+          <li id="tip-install">Safari の共有ボタン →「ホーム画面に追加」で、アプリとして使えます</li>
+          <li>スタートすると位置情報の許可を聞かれるので「許可」</li>
+          <li id="tip-lock">画面が消えると GPS が止まるので、走る前に 設定 → 画面表示と明るさ → 自動ロック を「なし」に（走り終わったら戻してください）</li>
+          <li>空が開けた場所で、GPS が「良好」になってからスタートすると正確です</li>
+        </ol>
+        <button id="btn-welcome-ok" class="btn btn-secondary small" type="button">わかった</button>
+      </div>
     </div>
 
     <div id="active-panel" hidden>
@@ -151,6 +161,7 @@
       <div class="goal-card" id="goal-week"></div>
       <div class="goal-card" id="goal-month"></div>
     </div>
+    <div id="load-note" class="banner info" hidden></div>
     <h2>週ごとの距離</h2>
     <div id="chart-weeks" class="chart-box"></div>
     <div class="stat-row" id="year-stats"></div>

@@ -236,6 +236,11 @@ textarea { display: block; width: 100%; margin-top: 8px; resize: vertical; }
 .shoe-bar .row-between { display: flex; justify-content: space-between; font-size: 14px; }
 .shoe-bar .progress > div { background: var(--chart-1); }
 
+/* ---------- はじめに ---------- */
+.welcome { margin-top: 14px; padding-bottom: 12px; }
+.welcome ol { margin: 4px 0 10px; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+.welcome li + li { margin-top: 4px; }
+
 /* ---------- 設定 ---------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 16px 14px; margin-bottom: 12px; }
 .card h2 { margin: 12px 0 4px; }
