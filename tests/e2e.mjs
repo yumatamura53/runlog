@@ -93,6 +93,7 @@ check(await page.locator('#d-splits tr').count() >= 5, 'ラップ表');
 check(parseInt(await page.textContent('#d-elev')) > 10, '獲得標高 ' + await page.textContent('#d-elev'));
 check((await page.textContent('#d-prs')).includes('5km'), '自己ベストの表示');
 // ペースのグラフに触れると地図に印
+await page.locator('#chart-pace svg').scrollIntoViewIfNeeded();
 const cb = await page.locator('#chart-pace svg').boundingBox();
 await page.mouse.move(cb.x + cb.width * 0.5, cb.y + 40);
 check(await page.isVisible('#chart-pace .chart-tip'), 'グラフのツールチップ');
