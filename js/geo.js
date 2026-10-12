@@ -12,7 +12,8 @@ export const CONFIG = {
   autopauseAfterMs: 6000,
   autoresumeSpeed: 1.2,
   autoresumeDist: 10,
-  elevThreshold: 4,       // m。標高差がこれを超えてはじめて上り下りに数える
+  elevThreshold: 5,       // m。標高差がこれを超えてはじめて上り下りに数える
+  dopplerWeight: 0.7,     // 距離に使う「GPS速度×時間」の割合（残りは位置の移動量）
 };
 
 const R = 6371008.8;
@@ -177,14 +178,15 @@ export class Recorder {
       this._maybeAutopause(t, events);
       return events;
     }
-    // GPS の速度（ドップラー）が取れるときは「速度×時間」で距離を出す。
-    // 位置の左右の揺れに影響されにくく、ランニングウォッチと同じ考え方。
-    // ただし位置の移動量から大きく外れる場合は位置を信じる。
+    // GPS の速度（ドップラー）が取れるときは「速度×時間」と位置の移動量を 7:3 で混ぜる。
+    // 速度は位置の左右の揺れに強く、位置は端末ごとの速度のくせに強いので、互いの弱点を打ち消す
+    // （合成データでの検証は tests/accuracy.mjs）。両者が大きく食い違うときは位置を信じる。
     if (v != null && !gap) {
       const dt = (t - this.anchor.t) / 1000;
       const dv = v * dt;
       if (Math.abs(dv - d) <= Math.max(5, d * 0.5)) {
-        d = dv;
+        const w = CONFIG.dopplerWeight;
+        d = w * dv + (1 - w) * d;
       }
     }
     if (v == null || v >= CONFIG.autopauseSpeed) this.lastMoveAt = t;
@@ -351,19 +353,32 @@ function timeAt(points, d) {
   return a[2] + ((d - a[5]) / (b[5] - a[5])) * (b[2] - a[2]);
 }
 
-// km ごとの標高の上り下り
-export function splitElevation(points) {
-  const out = [];
-  let km = 1, last = null, gain = 0, loss = 0;
+// km ごとの標高の上り下り（揺れを数えないよう、閾値を超えた変化だけを数える）
+export function splitElevation(points, threshold = 3) {
+  const out = [{ gain: 0, loss: 0 }];
+  let ref = null;
   for (const p of points) {
-    while (p[5] >= km * 1000) { out.push({ gain, loss }); gain = 0; loss = 0; km++; }
-    if (p[4] != null) {
-      if (last != null) { const d = p[4] - last; if (d > 0) gain += d; else loss -= d; }
-      last = p[4];
-    }
+    const km = Math.floor(p[5] / 1000);
+    while (out.length <= km) out.push({ gain: 0, loss: 0 });
+    if (p[4] == null) continue;
+    if (ref == null) { ref = p[4]; continue; }
+    const diff = p[4] - ref;
+    if (diff >= threshold) { out[km].gain += diff; ref = p[4]; }
+    else if (diff <= -threshold) { out[km].loss -= diff; ref = p[4]; }
   }
-  out.push({ gain, loss });
   return out.map((e) => ({ gain: Math.round(e.gain), loss: Math.round(e.loss) }));
+}
+
+// グラフ用の移動平均（null は飛ばす）
+export function smooth(values, radius = 2) {
+  return values.map((v, i) => {
+    if (v == null) return null;
+    let sum = 0, n = 0;
+    for (let j = Math.max(0, i - radius); j <= Math.min(values.length - 1, i + radius); j++) {
+      if (values[j] != null && isFinite(values[j])) { sum += values[j]; n++; }
+    }
+    return n ? sum / n : v;
+  });
 }
 
 // プライバシー: スタート・ゴール付近 meters を取り除いた points

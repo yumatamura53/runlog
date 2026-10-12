@@ -30,15 +30,17 @@ const scenarios = [
   ['GPS速度なし（古い端末）', cityLoop(), { noise: 6, corr: C, nospeed: true }],
   ['速めのペース走 4:00/km', cityLoop(4.17), { noise: 5, corr: C }],
 ];
-console.log('シナリオ | 正解 | 旧方式 | 新方式（10回平均の誤差）');
+console.log('シナリオ | 正解 | 旧方式 平均誤差 | 新方式 平均誤差 | 新方式 |誤差|平均 | 新方式 最大|誤差|');
 for (const [name, legs, opt] of scenarios) {
-  let e1 = 0, e2 = 0, n = 10, truth;
+  let e1 = 0, e2 = 0, a2 = 0, m2 = 0, n = 10, truth;
   for (let s = 1; s <= n; s++) {
     const { fixes, trueDist } = simulate(legs, { ...opt, seed: s * 7 });
     truth = trueDist;
-    e1 += (v1(fixes) - trueDist) / trueDist; e2 += (v2(fixes).distance - trueDist) / trueDist;
+    e1 += (v1(fixes) - trueDist) / trueDist;
+    const err = (v2(fixes).distance - trueDist) / trueDist;
+    e2 += err; a2 += Math.abs(err); m2 = Math.max(m2, Math.abs(err));
   }
-  console.log(`${name} | ${(truth / 1000).toFixed(2)}km | ${(e1 / n * 100).toFixed(1)}% | ${(e2 / n * 100).toFixed(1)}%`);
+  console.log(`${name} | ${(truth / 1000).toFixed(2)}km | ${(e1 / n * 100).toFixed(1)}% | ${(e2 / n * 100).toFixed(1)}% | ${(a2 / n * 100).toFixed(1)}% | ${(m2 * 100).toFixed(1)}%`);
 }
 // 静止 5 分（家の前で GPS を待つ等）
 let s1 = 0, s2 = 0;

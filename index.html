@@ -8,6 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RunLog">
+<meta name="referrer" content="no-referrer">
 <title>RunLog</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -17,101 +18,285 @@
 </head>
 <body>
 <main>
-  <!-- 計測 -->
-  <section id="view-run" class="view active">
+  <!-- ===== 計測 ===== -->
+  <section id="view-run" class="view active" aria-label="計測">
     <div id="map-run" class="map"></div>
-    <div class="gps" id="gps-status"><span class="dot"></span><span id="gps-text">GPS 未取得</span></div>
+    <div class="run-top">
+      <div class="gps" id="gps-status" role="status"><span class="dot"></span><span id="gps-text">GPS 未取得</span></div>
+      <div id="gps-lost" class="banner warn" hidden>GPS の信号が途切れています</div>
+    </div>
+
+    <div id="workout-banner" class="workout-banner" hidden>
+      <div class="wb-row"><strong id="wb-title"></strong><span id="wb-detail"></span></div>
+      <div class="progress"><div id="wb-bar"></div></div>
+    </div>
 
     <div class="metrics">
       <div class="metric main">
         <div class="value" id="m-distance">0.00</div>
         <div class="label">km</div>
       </div>
-      <div class="metric">
-        <div class="value" id="m-time">0:00</div>
-        <div class="label">タイム</div>
-      </div>
-      <div class="metric">
-        <div class="value" id="m-pace">--'--"</div>
-        <div class="label">現在ペース /km</div>
-      </div>
-      <div class="metric">
-        <div class="value" id="m-avg">--'--"</div>
-        <div class="label">平均ペース /km</div>
-      </div>
-      <div class="metric">
-        <div class="value" id="m-lap">--'--"</div>
-        <div class="label">前の1kmラップ</div>
+      <div class="metric"><div class="value" id="m-time">0:00</div><div class="label">タイム</div></div>
+      <div class="metric"><div class="value" id="m-pace">--'--"</div><div class="label">現在ペース /km</div></div>
+      <div class="metric"><div class="value" id="m-avg">--'--"</div><div class="label">平均ペース /km</div></div>
+      <div class="metric"><div class="value" id="m-lap">--'--"</div><div class="label" id="m-lap-label">このkmのペース</div></div>
+    </div>
+
+    <div id="idle-panel">
+      <button id="btn-plan" class="chip-btn" type="button" aria-haspopup="dialog">
+        <span class="chip-k">メニュー</span><span id="plan-name">フリーラン</span><span aria-hidden="true">›</span>
+      </button>
+      <div class="controls"><button id="btn-start" class="btn btn-primary btn-xl" type="button">スタート</button></div>
+      <div id="week-mini" class="week-mini"></div>
+    </div>
+
+    <div id="active-panel" hidden>
+      <div class="controls">
+        <button id="btn-lock" class="btn btn-secondary btn-icon" type="button" aria-label="画面ロック">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        </button>
+        <button id="btn-pause" class="btn btn-warn btn-xl" type="button">一時停止</button>
       </div>
     </div>
 
-    <div class="controls">
-      <button id="btn-start" class="btn btn-primary btn-xl">スタート</button>
-      <button id="btn-pause" class="btn btn-warn btn-xl" hidden>一時停止</button>
-      <button id="btn-resume" class="btn btn-primary btn-lg" hidden>再開</button>
-      <button id="btn-finish" class="btn btn-danger btn-lg" hidden>長押しで終了</button>
+    <div id="paused-panel" hidden>
+      <div class="controls">
+        <button id="btn-resume" class="btn btn-primary btn-lg" type="button">再開</button>
+        <button id="btn-finish" class="btn btn-danger btn-lg" type="button">長押しで終了</button>
+      </div>
+      <button id="btn-discard" class="btn btn-ghost small muted-text" type="button">記録せずに破棄</button>
     </div>
-    <p class="hint" id="run-hint">計測中は画面をつけたままにしてください（自動でスリープを防ぎます）</p>
+    <p class="hint" id="run-hint"></p>
   </section>
 
-  <!-- 履歴 -->
-  <section id="view-history" class="view">
-    <h1>記録</h1>
-    <div class="stats">
-      <div class="stat"><div class="stat-v" id="s-week">0.0</div><div class="stat-l">今週 km</div></div>
-      <div class="stat"><div class="stat-v" id="s-month">0.0</div><div class="stat-l">今月 km</div></div>
-      <div class="stat"><div class="stat-v" id="s-total">0</div><div class="stat-l">総ラン数</div></div>
+  <!-- ===== 記録一覧 ===== -->
+  <section id="view-history" class="view" aria-label="記録">
+    <div class="page-head">
+      <h1>記録</h1>
+      <button id="btn-add" class="btn btn-secondary small" type="button">＋ 追加</button>
     </div>
-    <ul id="run-list" class="run-list"></ul>
-    <p id="empty" class="empty">まだ記録がありません。最初のランに出かけましょう！</p>
+    <div id="run-list"></div>
+    <div id="empty" class="empty" hidden>
+      <p>まだ記録がありません。</p>
+      <p class="muted-text">「計測」からスタートするか、Strava などの GPX を取り込めます。</p>
+    </div>
   </section>
 
-  <!-- 詳細 -->
-  <section id="view-detail" class="view">
+  <!-- ===== 記録の詳細 ===== -->
+  <section id="view-detail" class="view" aria-label="記録の詳細">
     <div class="detail-head">
-      <button class="btn btn-ghost" id="btn-back">‹ 戻る</button>
-      <div id="d-date" class="detail-date"></div>
+      <button class="btn btn-ghost" id="btn-back" type="button">‹ 記録</button>
     </div>
-    <div id="map-detail" class="map map-detail"></div>
+    <input id="d-title" class="title-input" aria-label="タイトル" maxlength="60">
+    <div id="d-date" class="muted-text"></div>
+    <div id="d-prs" class="pr-list"></div>
+    <div class="map-wrap">
+      <div id="map-detail" class="map map-detail"></div>
+      <div class="map-tools">
+        <button id="btn-pacecolor" class="chip-btn small" type="button" aria-pressed="false">ペースで色分け</button>
+      </div>
+      <div id="pace-legend" class="pace-legend" hidden><span>遅い</span><i></i><span>速い</span></div>
+    </div>
     <div class="metrics compact">
       <div class="metric"><div class="value" id="d-distance"></div><div class="label">km</div></div>
       <div class="metric"><div class="value" id="d-time"></div><div class="label">タイム</div></div>
       <div class="metric"><div class="value" id="d-pace"></div><div class="label">平均ペース /km</div></div>
+      <div class="metric"><div class="value" id="d-elev"></div><div class="label">獲得標高 m</div></div>
+      <div class="metric"><div class="value" id="d-best1k"></div><div class="label">最速 1km</div></div>
+      <div class="metric"><div class="value" id="d-elapsed"></div><div class="label">経過時間</div></div>
     </div>
-    <label class="memo-label">メモ
-      <textarea id="d-memo" rows="2" placeholder="体調・コース・天気など"></textarea>
-    </label>
+    <div id="d-gaps" class="banner info" hidden></div>
+
+    <h2 id="h-pace">ペース</h2>
+    <div id="chart-pace" class="chart-box"></div>
+    <h2 id="h-elev">標高</h2>
+    <div id="chart-elev" class="chart-box"></div>
+
+    <div id="d-workout" hidden>
+      <h2>ワークアウト</h2>
+      <table class="table"><thead><tr><th>本</th><th>距離</th><th>タイム</th><th>ペース</th></tr></thead><tbody id="d-workout-rows"></tbody></table>
+    </div>
+
     <h2>ラップ</h2>
-    <table class="splits"><thead><tr><th>km</th><th>ラップ</th><th></th></tr></thead><tbody id="d-splits"></tbody></table>
-    <div class="detail-actions">
-      <button class="btn btn-secondary" id="btn-gpx">GPXで書き出し</button>
-      <button class="btn btn-ghost danger-text" id="btn-delete">この記録を削除</button>
+    <table class="table splits"><thead><tr><th>km</th><th>ペース</th><th class="bar-col"></th><th>標高</th></tr></thead><tbody id="d-splits"></tbody></table>
+
+    <h2>メモ</h2>
+    <div class="form-grid">
+      <label>種類
+        <select id="d-type">
+          <option value="">-</option><option>ジョグ</option><option>ペース走</option><option>インターバル</option>
+          <option>ロング走</option><option>レース</option><option>トレイル</option><option>その他</option>
+        </select>
+      </label>
+      <label>シューズ <select id="d-shoe"></select></label>
+      <label>体感
+        <select id="d-feel"><option value="">-</option><option value="1">😫 きつい</option><option value="2">😐 ふつう</option><option value="3">🙂 いい感じ</option><option value="4">🤩 絶好調</option></select>
+      </label>
     </div>
+    <textarea id="d-memo" rows="3" placeholder="体調・コース・天気など" aria-label="メモ"></textarea>
+
+    <div class="detail-actions">
+      <button class="btn btn-secondary" id="btn-share" type="button">画像で共有</button>
+      <button class="btn btn-secondary" id="btn-gpx" type="button">GPX 書き出し</button>
+    </div>
+    <p class="hint" id="privacy-hint"></p>
+    <button class="btn btn-ghost danger-text" id="btn-delete" type="button">この記録を削除</button>
+  </section>
+
+  <!-- ===== 分析 ===== -->
+  <section id="view-stats" class="view" aria-label="分析">
+    <h1>分析</h1>
+    <div class="goal-cards">
+      <div class="goal-card" id="goal-week"></div>
+      <div class="goal-card" id="goal-month"></div>
+    </div>
+    <h2>週ごとの距離</h2>
+    <div id="chart-weeks" class="chart-box"></div>
+    <div class="stat-row" id="year-stats"></div>
+
+    <div class="cal-head">
+      <button class="btn btn-ghost" id="cal-prev" type="button" aria-label="前の月">‹</button>
+      <h2 id="cal-title"></h2>
+      <button class="btn btn-ghost" id="cal-next" type="button" aria-label="次の月">›</button>
+    </div>
+    <div id="calendar"></div>
+
+    <h2>自己ベスト</h2>
+    <table class="table"><tbody id="pr-rows"></tbody></table>
+    <h2>予想タイム</h2>
+    <p class="hint left" id="pred-note"></p>
+    <table class="table"><tbody id="pred-rows"></tbody></table>
+    <h2>シューズ</h2>
+    <div id="shoe-stats"></div>
+  </section>
+
+  <!-- ===== 設定 ===== -->
+  <section id="view-settings" class="view" aria-label="設定">
+    <h1>設定</h1>
+    <div class="card">
+      <h2>音声ガイド</h2>
+      <label class="row"><input type="checkbox" id="opt-voice"> 音声でお知らせ</label>
+      <label class="row-select">お知らせの間隔
+        <select id="opt-voiceEvery">
+          <option value="km1">1km ごと</option><option value="km05">0.5km ごと</option>
+          <option value="min5">5分ごと</option><option value="min10">10分ごと</option>
+        </select>
+      </label>
+      <label class="row"><input type="checkbox" id="opt-voicePace"> 平均ペースも読み上げる</label>
+      <button class="btn btn-secondary small" id="btn-voice-test" type="button">試しに聞く</button>
+    </div>
+    <div class="card">
+      <h2>計測</h2>
+      <label class="row"><input type="checkbox" id="opt-autopause"> 止まったら自動で一時停止</label>
+      <label class="row"><input type="checkbox" id="opt-countdown"> スタート前に 3 秒カウントダウン</label>
+      <label class="row"><input type="checkbox" id="opt-map"> 計測画面に地図を表示</label>
+    </div>
+    <div class="card">
+      <h2>目標</h2>
+      <label class="row-select">週の目標 <span><input type="number" id="opt-weekGoal" min="0" step="1" inputmode="decimal"> km</span></label>
+      <label class="row-select">月の目標 <span><input type="number" id="opt-monthGoal" min="0" step="1" inputmode="decimal"> km</span></label>
+    </div>
+    <div class="card">
+      <h2>シューズ</h2>
+      <ul id="shoe-list" class="shoe-list"></ul>
+      <form id="shoe-form" class="inline-form">
+        <input id="shoe-name" placeholder="例: ペガサス 41" aria-label="シューズ名" maxlength="40">
+        <button class="btn btn-secondary small" type="submit">追加</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>プライバシー</h2>
+      <label class="row-select">共有・書き出し時に<br>スタートとゴール付近を隠す
+        <select id="opt-hideMeters">
+          <option value="0">隠さない</option><option value="200">200m</option><option value="500">500m</option><option value="1000">1km</option>
+        </select>
+      </label>
+      <p class="hint left">記録はこの端末のブラウザの中だけに保存され、どこにも送信されません。地図の表示には OpenStreetMap の地図画像を読み込みます。</p>
+    </div>
+    <div class="card">
+      <h2>データ</h2>
+      <div class="btn-col">
+        <button class="btn btn-secondary" id="btn-backup" type="button">バックアップを書き出す</button>
+        <button class="btn btn-secondary" id="btn-restore" type="button">バックアップから復元</button>
+        <button class="btn btn-secondary" id="btn-import" type="button">GPX を取り込む（複数可）</button>
+      </div>
+      <p class="hint left" id="storage-info"></p>
+      <input type="file" id="file-restore" accept=".json,application/json" hidden>
+      <input type="file" id="file-import" accept=".gpx,application/gpx+xml,application/xml,text/xml" multiple hidden>
+    </div>
+    <p class="hint">RunLog</p>
   </section>
 </main>
 
-<nav class="tabbar">
-  <button class="tab active" data-view="view-run">
+<nav class="tabbar" aria-label="メインメニュー">
+  <button class="tab active" data-view="view-run" type="button">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>計測</button>
-  <button class="tab" data-view="view-history">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>記録</button>
-  <button class="tab" id="btn-settings">
+  <button class="tab" data-view="view-history" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>記録</button>
+  <button class="tab" data-view="view-stats" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>分析</button>
+  <button class="tab" data-view="view-settings" type="button">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>設定</button>
 </nav>
 
-<dialog id="settings">
-  <form method="dialog">
-    <h2>設定</h2>
-    <label class="row"><input type="checkbox" id="opt-voice"> 1kmごとに音声でお知らせ</label>
-    <label class="row"><input type="checkbox" id="opt-autopause"> 止まったら自動で一時停止</label>
-    <label class="row"><input type="checkbox" id="opt-map"> 計測画面に地図を表示</label>
-    <button class="btn btn-primary" value="close">閉じる</button>
+<!-- メニュー選択 -->
+<dialog id="dlg-plan" aria-labelledby="dlg-plan-title">
+  <form method="dialog" id="plan-form">
+    <h2 id="dlg-plan-title">メニュー</h2>
+    <div class="preset-grid" id="preset-grid"></div>
+    <details id="custom-plan">
+      <summary>自分で設定する</summary>
+      <label class="row-select">種類
+        <select id="cp-type">
+          <option value="distance">距離を決めて走る</option>
+          <option value="time">時間を決めて走る</option>
+          <option value="interval">インターバル</option>
+        </select>
+      </label>
+      <div data-for="distance"><label class="row-select">距離 <span><input id="cp-dist" type="number" min="0.1" step="0.1" value="5" inputmode="decimal"> km</span></label></div>
+      <div data-for="time" hidden><label class="row-select">時間 <span><input id="cp-time" type="number" min="1" step="1" value="30" inputmode="numeric"> 分</span></label></div>
+      <div data-for="interval" hidden>
+        <label class="row-select">1本の長さ <span><input id="cp-work" type="number" min="1" step="1" value="400" inputmode="numeric">
+          <select id="cp-workUnit" aria-label="単位"><option value="m">m</option><option value="s">秒</option></select></span></label>
+        <label class="row-select">本数 <span><input id="cp-reps" type="number" min="1" max="50" value="8" inputmode="numeric"> 本</span></label>
+        <label class="row-select">レスト <span><input id="cp-rest" type="number" min="0" step="5" value="90" inputmode="numeric"> 秒</span></label>
+        <label class="row-select">ウォームアップ <span><input id="cp-warm" type="number" min="0" value="10" inputmode="numeric"> 分</span></label>
+        <label class="row-select">クールダウン <span><input id="cp-cool" type="number" min="0" value="5" inputmode="numeric"> 分</span></label>
+      </div>
+      <label class="row-select">目標ペース（任意） <span><input id="cp-pace" placeholder="5:30" inputmode="numeric" size="5"> /km</span></label>
+      <button class="btn btn-primary" id="cp-apply" type="button">このメニューにする</button>
+    </details>
+    <button class="btn btn-ghost" value="cancel" type="submit">閉じる</button>
   </form>
 </dialog>
 
-<div id="toast" class="toast" hidden></div>
+<!-- 手入力 -->
+<dialog id="dlg-add" aria-labelledby="dlg-add-title">
+  <form method="dialog" id="add-form">
+    <h2 id="dlg-add-title">記録を追加</h2>
+    <p class="hint left">トレッドミルや時計で走った記録を手入力できます。</p>
+    <label class="row-select">日時 <input id="add-date" type="datetime-local" required></label>
+    <label class="row-select">距離 <span><input id="add-dist" type="number" min="0.01" step="0.01" required inputmode="decimal"> km</span></label>
+    <label class="row-select">タイム <input id="add-time" placeholder="45:30 または 1:02:00" required></label>
+    <div class="btn-col">
+      <button class="btn btn-primary" id="add-save" type="button">保存</button>
+      <button class="btn btn-secondary" id="add-gpx" type="button">GPX ファイルを取り込む</button>
+      <button class="btn btn-ghost" value="cancel" type="submit">キャンセル</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="lock-overlay" class="overlay lock" hidden>
+  <div class="lock-metrics">
+    <div class="lock-dist"><span id="l-distance">0.00</span><small>km</small></div>
+    <div class="lock-row"><span id="l-time">0:00</span><span id="l-pace">--'--"</span></div>
+  </div>
+  <button id="btn-unlock" class="btn btn-secondary btn-lg" type="button">長押しで解除</button>
+</div>
+<div id="countdown" class="overlay countdown" hidden><span id="countdown-n">3</span><button id="countdown-cancel" class="btn btn-ghost" type="button">キャンセル</button></div>
+<div id="toast" class="toast" role="status" hidden></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
