@@ -1,0 +1,23 @@
+{
+  "name": "runlog-native",
+  "private": true,
+  "version": "1.0.0",
+  "description": "RunLog をネイティブアプリ（iPhone / Android）として動かすための Capacitor プロジェクト",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-web.mjs",
+    "setup": "npm run build && npx cap add ios && npx cap add android && node scripts/configure-ios.mjs",
+    "ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "android": "npm run build && npx cap sync android && npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "1.2.26",
+    "@capacitor-community/text-to-speech": "6.1.0",
+    "@capacitor/android": "7.6.9",
+    "@capacitor/core": "7.6.9",
+    "@capacitor/ios": "7.6.9"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "7.6.9"
+  }
+}

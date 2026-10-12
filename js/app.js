@@ -10,6 +10,7 @@ import { runs, toGpx, parseGpx, makeBackup, readBackup, shareOrDownload, fileSta
 import { lineChart, barChart, calendar, routeThumb } from './charts.js';
 import { makeMap, drawRoute, hasLeaflet } from './map.js';
 import { renderShareImage } from './share.js';
+import { watchLocation, speakText, isNative, locationPermission } from './platform.js';
 
 const $ = (id) => document.getElementById(id);
 const CURRENT_KEY = 'runlog.current';
@@ -68,13 +69,8 @@ function longPress(btn, ms, label, onDone) {
 /* ================= 音声 ================= */
 
 function speak(text, { force = false } = {}) {
-  if ((!settings.voice && !force) || !('speechSynthesis' in window) || !text) return;
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'ja-JP';
-    u.rate = 1.05;
-    speechSynthesis.speak(u);
-  } catch { /* 音声が使えない環境 */ }
+  if ((!settings.voice && !force) || !text) return;
+  try { speakText(text); } catch { /* 音声が使えない環境 */ }
 }
 
 /* ================= 計測 ================= */
@@ -83,7 +79,7 @@ let rec = null;          // Recorder
 let workout = null;      // Workout
 let voiceState = { half: 0, min: 0 };
 let lastFix = null;
-let watchId = null;
+let stopWatch = null;
 let wakeLock = null;
 let tickTimer = null;
 let lastSaved = 0;
@@ -92,23 +88,23 @@ let gpsLostWarned = false;
 const isRecording = () => rec && rec.status !== 'finished';
 
 function startWatch() {
-  if (watchId !== null || !('geolocation' in navigator)) return;
+  if (stopWatch) return;
   setGps('searching', 'GPS を探しています…');
-  watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
-    enableHighAccuracy: true, maximumAge: 0, timeout: 30000,
-  });
+  stopWatch = watchLocation(onPosition, onGeoError);
 }
 function restartWatch() {
-  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-  watchId = null;
+  stopWatch?.();
+  stopWatch = null;
   startWatch();
 }
 
 function onGeoError(err) {
   if (err.code === 1) {
-    setGps('bad', '位置情報が許可されていません。設定アプリ →（Safari／ブラウザ）→ 位置情報 を「許可」にしてください');
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
+    setGps('bad', isNative()
+      ? '位置情報が許可されていません。設定アプリ → RunLog → 位置情報 を「このAppの使用中」以上にしてください'
+      : '位置情報が許可されていません。設定アプリ →（Safari／ブラウザ）→ 位置情報 を「許可」にしてください');
+    stopWatch?.();
+    stopWatch = null;
   } else {
     setGps('searching', 'GPS を探しています…（空が見える場所へ）');
   }
@@ -119,15 +115,7 @@ function setGps(cls, text) {
   $('gps-text').textContent = text;
 }
 
-function onPosition(pos) {
-  const c = pos.coords;
-  const now = Date.now();
-  const fix = {
-    lat: c.latitude, lon: c.longitude, acc: c.accuracy,
-    alt: c.altitude, altAcc: c.altitudeAccuracy,
-    speed: c.speed != null && c.speed >= 0 ? c.speed : null,
-    t: now,
-  };
+function onPosition(fix) {
   lastFix = fix;
   const q = fix.acc <= 12 ? ['good', '良好'] : fix.acc <= CONFIG.maxAccuracy ? ['fair', 'まずまず'] : ['bad', '弱い'];
   setGps(q[0], `GPS ${q[1]}（誤差 約${Math.round(fix.acc)}m）`);
@@ -210,7 +198,7 @@ function countdown() {
       i--;
       timer = setTimeout(step, 1000);
     };
-    $('countdown-cancel').onclick = () => { clearTimeout(timer); ov.hidden = true; speechSynthesis?.cancel(); resolve(false); };
+    $('countdown-cancel').onclick = () => { clearTimeout(timer); ov.hidden = true; window.speechSynthesis?.cancel(); resolve(false); };
     step();
   });
 }
@@ -342,8 +330,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     if (isRecording()) {
       requestWakeLock();
-      // バックグラウンドから戻ると GPS が止まったままのことがあるので掛け直す
-      restartWatch();
+      // ブラウザ版はバックグラウンドから戻ると GPS が止まったままのことがあるので掛け直す
+      if (!isNative()) restartWatch();
     }
     render();
   } else {
@@ -433,7 +421,7 @@ function render() {
   $('btn-pause').classList.toggle('btn-secondary', status === 'autopaused');
   $('btn-pause').classList.toggle('btn-warn', status !== 'autopaused');
   $('run-hint').textContent = recording
-    ? (status === 'paused' ? '一時停止中' : '画面ロック中は GPS が止まります。画面はつけたままで')
+    ? (status === 'paused' ? '一時停止中' : isNative() ? '画面をロックしても記録は続きます' : '画面ロック中は GPS が止まります。画面はつけたままで')
     : '計測中は画面をつけたままにしてください';
   document.querySelector('.tab[data-view="view-run"]').classList.toggle('recording', recording);
   $('plan-name').textContent = describePlan(settings.plan);
@@ -1014,7 +1002,7 @@ function bind() {
   $('btn-plan').addEventListener('click', openPlanDialog);
   $('cp-type').addEventListener('change', syncCustomFields);
   $('cp-apply').addEventListener('click', applyCustomPlan);
-  $('gps-status').addEventListener('click', () => { if (watchId === null) startWatch(); });
+  $('gps-status').addEventListener('click', () => { if (!stopWatch) startWatch(); });
 
   document.querySelectorAll('.tab[data-view]').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
   $('btn-back').addEventListener('click', () => showView('view-history'));
@@ -1115,13 +1103,9 @@ async function init() {
   render();
 
   // 位置情報が許可済みなら、スタート前から GPS を温めておく
-  try {
-    const perm = await navigator.permissions.query({ name: 'geolocation' });
-    if (perm.state === 'granted' || isRecording()) startWatch();
-    else setGps('', 'タップして GPS を開始（スタート時にも開始します）');
-  } catch {
-    startWatch();
-  }
+  const perm = await locationPermission();
+  if (perm === 'granted' || perm === 'native' || perm === 'unknown' || isRecording()) startWatch();
+  else setGps('', 'タップして GPS を開始（スタート時にも開始します）');
 
   // バックアップのすすめ（30 日以上していない、かつ記録が 5 件以上）
   const all = await runs.all();

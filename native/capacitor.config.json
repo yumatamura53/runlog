@@ -1,0 +1,8 @@
+{
+  "appId": "local.runlog.app",
+  "appName": "RunLog",
+  "webDir": "www",
+  "android": {
+    "useLegacyBridge": true
+  }
+}

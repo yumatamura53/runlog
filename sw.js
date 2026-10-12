@@ -2,7 +2,7 @@
 const CACHE = 'runlog-v3';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png',
-  'js/app.js', 'js/geo.js', 'js/workout.js', 'js/stats.js', 'js/format.js', 'js/store.js', 'js/charts.js', 'js/map.js', 'js/share.js',
+  'js/app.js', 'js/platform.js', 'js/geo.js', 'js/workout.js', 'js/stats.js', 'js/format.js', 'js/store.js', 'js/charts.js', 'js/map.js', 'js/share.js',
   'vendor/leaflet/leaflet.css', 'vendor/leaflet/leaflet.js',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-shadow.png', 'vendor/leaflet/images/layers.png',
 ];
